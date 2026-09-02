@@ -32,19 +32,24 @@ function buildIdentifier(stashId: string): string {
   return `${PROVIDER_ID_PREFIX}.${sanitizeIdentifier(stashId)}`;
 }
 
-function buildGuid(identifier: string, kind: ItemKind, sceneId: string): string {
-  return `${identifier}://${kind}.${sceneId}`;
+// Plex restricts ratingKey to ASCII letters, numbers, dashes and
+// underscores (regex [a-zA-Z0-9_-]) — periods are not allowed.
+function buildRatingKey(kind: ItemKind, sceneId: string): string {
+  return `${kind}-${sceneId}`;
 }
 
-function buildRatingKey(kind: ItemKind, sceneId: string): string {
-  return `${kind}.${sceneId}`;
+// Per Plex's GUID construction spec: {scheme}://{metadataType}/{ratingKey}
+// — the path after the scheme uses a slash, and the final component must
+// match the item's ratingKey exactly.
+function buildGuid(identifier: string, kind: ItemKind, sceneId: string): string {
+  return `${identifier}://${kind}/${buildRatingKey(kind, sceneId)}`;
 }
 
 function parseItemId(id: string): { kind: ItemKind; sceneId: string } {
-  if (id.startsWith('movie.'))   return { kind: 'movie',   sceneId: id.slice(6) };
-  if (id.startsWith('show.'))    return { kind: 'show',    sceneId: id.slice(5) };
-  if (id.startsWith('season.'))  return { kind: 'season',  sceneId: id.slice(7) };
-  if (id.startsWith('episode.')) return { kind: 'episode', sceneId: id.slice(8) };
+  if (id.startsWith('movie-'))   return { kind: 'movie',   sceneId: id.slice(6) };
+  if (id.startsWith('show-'))    return { kind: 'show',    sceneId: id.slice(5) };
+  if (id.startsWith('season-'))  return { kind: 'season',  sceneId: id.slice(7) };
+  if (id.startsWith('episode-')) return { kind: 'episode', sceneId: id.slice(8) };
   return { kind: 'movie', sceneId: id };
 }
 
