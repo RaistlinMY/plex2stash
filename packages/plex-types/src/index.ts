@@ -28,17 +28,15 @@ export interface ProviderFeature {
 }
 
 /**
- * A supported media-type declaration in the Type[] array.
+ * A supported media-type declaration in the Types[] array.
  *
- * CRITICAL: Must use `id` (NOT `type`).
- * Plex parses this as an object with `id` field; using `type` causes
- * "failed to parse JSON response: 'object expected'" errors.
- *
- * id: 1 = Movie, 2 = Show, 3 = Season, 4 = Episode
+ * Per Plex's official custom-provider spec (plexinc/tmdb-example-provider,
+ * docs/MediaProvider.md), each entry uses a `type` field (numeric):
+ *   1 = Movie, 2 = Show, 3 = Season, 4 = Episode
  * Scheme[].scheme must exactly equal the provider identifier.
  */
 export interface PlexTypeEntry {
-  id: number;
+  type: number;
   Scheme: { scheme: string }[];
 }
 
@@ -46,12 +44,12 @@ export interface PlexTypeEntry {
  * MediaProvider object returned at the provider root.
  *
  * Required structure:
- *   { MediaProvider: { identifier, title, version, protocols, Type, Feature } }
+ *   { MediaProvider: { identifier, title, version, protocols, Types, Feature } }
  *
  * Rules:
  *   • MediaProvider is a single OBJECT (never an array)
  *   • No MediaContainer wrapper
- *   • `Type` uses PlexTypeEntry[] with `id` field (not `type`)
+ *   • `Types` (plural) uses PlexTypeEntry[] with `type` field
  *   • `protocols` should be 'metadata'
  *   • identifier must be [a-zA-Z0-9.] only, starting with tv.plex.agents.custom.
  */
@@ -60,7 +58,7 @@ export interface MediaProvider {
   title: string;
   version: string;
   protocols?: string;
-  Type?: PlexTypeEntry[];
+  Types?: PlexTypeEntry[];
   Feature: ProviderFeature[];
 }
 
@@ -98,6 +96,9 @@ export interface MatchResult {
 /** Match response */
 export interface MatchResponse {
   MediaContainer: {
+    offset: number;
+    totalSize: number;
+    identifier?: string;
     size: number;
     Metadata: MatchResult[];
   };
@@ -136,13 +137,20 @@ export interface MetadataItem {
 
   // Season / Episode — parent references
   parentRatingKey?: string;
+  parentKey?: string;
+  parentGuid?: string;
+  parentType?: string;
   parentTitle?: string;
   parentThumb?: string;
   parentIndex?: number;
 
   // Episode — grandparent references
   grandparentRatingKey?: string;
+  grandparentKey?: string;
+  grandparentGuid?: string;
+  grandparentType?: string;
   grandparentTitle?: string;
+  grandparentThumb?: string;
 
   // Episode / Season ordering
   index?: number;
@@ -151,6 +159,9 @@ export interface MetadataItem {
 /** Standard metadata response */
 export interface MetadataResponse {
   MediaContainer: {
+    offset: number;
+    totalSize: number;
+    identifier?: string;
     size: number;
     Metadata: MetadataItem[];
   };
@@ -163,6 +174,9 @@ export interface MetadataResponse {
  */
 export interface ChildrenResponse {
   MediaContainer: {
+    offset: number;
+    totalSize: number;
+    identifier?: string;
     size: number;
     key: string;
     parentRatingKey?: string;
@@ -186,8 +200,11 @@ export interface ImageItem {
 /** Images response */
 export interface ImagesResponse {
   MediaContainer: {
+    offset: number;
+    totalSize: number;
+    identifier?: string;
     size: number;
-    Metadata: ImageItem[];
+    Image: ImageItem[];
   };
 }
 

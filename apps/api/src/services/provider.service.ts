@@ -228,6 +228,9 @@ function sceneToSeasonMetadata(
     index: 1,
     leafCount: 1,
     parentRatingKey: showRk,
+    parentKey: `/library/metadata/${showRk}`,
+    parentGuid: buildGuid(identifier, 'show', scene.id),
+    parentType: 'show',
     parentTitle: scene.title,
     parentThumb: fs.poster ? proxyImageUrl(stashId, scene.paths?.screenshot) : undefined,
     thumb: fs.poster ? proxyImageUrl(stashId, scene.paths?.screenshot) : undefined,
@@ -260,8 +263,14 @@ function sceneToEpisodeMetadata(
     index: 1,
     parentIndex: 1,
     parentRatingKey: seasonRk,
+    parentKey: `/library/metadata/${seasonRk}`,
+    parentGuid: buildGuid(identifier, 'season', scene.id),
+    parentType: 'season',
     parentTitle: 'Season 1',
     grandparentRatingKey: showRk,
+    grandparentKey: `/library/metadata/${showRk}`,
+    grandparentGuid: buildGuid(identifier, 'show', scene.id),
+    grandparentType: 'show',
     grandparentTitle: scene.title,
     thumb: fs.poster ? proxyImageUrl(stashId, scene.paths?.screenshot) : undefined,
     art:   fs.background ? proxyImageUrl(stashId, scene.paths?.preview) : undefined,
@@ -296,9 +305,11 @@ class ProviderService {
         title: name,
         version: PROVIDER_VERSION,
         protocols: 'metadata',
-        Type: [
-          { id: 1, Scheme: [{ scheme: identifier }] },
-          { id: 2, Scheme: [{ scheme: identifier }] },
+        Types: [
+          { type: 1, Scheme: [{ scheme: identifier }] },
+          { type: 2, Scheme: [{ scheme: identifier }] },
+          { type: 3, Scheme: [{ scheme: identifier }] },
+          { type: 4, Scheme: [{ scheme: identifier }] },
         ],
         Feature: [
           { type: 'match',    key: `/library/metadata/matches` },
@@ -318,7 +329,7 @@ class ProviderService {
     if (cached) return cached;
 
     const stash = await configService.getStash(stashId);
-    if (!stash) return { MediaContainer: { size: 0, Metadata: [] } };
+    if (!stash) return { MediaContainer: { offset: 0, totalSize: 0, size: 0, Metadata: [] } };
 
     try {
       const identifier = buildIdentifier(stashId);
@@ -357,13 +368,19 @@ class ProviderService {
       );
 
       const response: MatchResponse = {
-        MediaContainer: { size: results.length, Metadata: results },
+        MediaContainer: {
+          offset: 0,
+          totalSize: results.length,
+          identifier,
+          size: results.length,
+          Metadata: results,
+        },
       };
       cacheService.setMatch(cacheKey, response);
       return response;
     } catch (err: any) {
       loggerService.error(`match error: ${err.message}`, stashId);
-      return { MediaContainer: { size: 0, Metadata: [] } };
+      return { MediaContainer: { offset: 0, totalSize: 0, size: 0, Metadata: [] } };
     }
   }
 
@@ -389,7 +406,7 @@ class ProviderService {
       } catch { continue; }
     }
 
-    return { MediaContainer: { size: 0, Metadata: [] } };
+    return { MediaContainer: { offset: 0, totalSize: 0, size: 0, Metadata: [] } };
   }
 
   async getMetadata(stashId: string, itemId: string): Promise<MetadataResponse> {
@@ -398,14 +415,14 @@ class ProviderService {
     if (cached) return cached;
 
     const stash = await configService.getStash(stashId);
-    if (!stash) return { MediaContainer: { size: 0, Metadata: [] } };
+    if (!stash) return { MediaContainer: { offset: 0, totalSize: 0, size: 0, Metadata: [] } };
 
     const { kind, sceneId } = parseItemId(itemId);
     const fs = resolveFieldSync(stash.fieldSync);
 
     try {
       const scene = await stashService.findScene(stash, sceneId);
-      if (!scene) return { MediaContainer: { size: 0, Metadata: [] } };
+      if (!scene) return { MediaContainer: { offset: 0, totalSize: 0, size: 0, Metadata: [] } };
 
       const identifier = buildIdentifier(stashId);
       let metadata: MetadataItem;
@@ -420,19 +437,19 @@ class ProviderService {
       loggerService.debug(`Metadata fetched: ${itemId} (${kind})`, stashId);
 
       const response: MetadataResponse = {
-        MediaContainer: { size: 1, Metadata: [metadata] },
+        MediaContainer: { offset: 0, totalSize: 1, identifier, size: 1, Metadata: [metadata] },
       };
       cacheService.setMetadata(cacheKey, response);
       return response;
     } catch (err: any) {
       loggerService.error(`metadata error id=${itemId}: ${err.message}`, stashId);
-      return { MediaContainer: { size: 0, Metadata: [] } };
+      return { MediaContainer: { offset: 0, totalSize: 0, size: 0, Metadata: [] } };
     }
   }
 
   async getChildren(stashId: string, itemId: string): Promise<ChildrenResponse> {
     const emptyContainer = (key: string): ChildrenResponse => ({
-      MediaContainer: { size: 0, key, Metadata: [] },
+      MediaContainer: { offset: 0, totalSize: 0, size: 0, key, Metadata: [] },
     });
 
     const { kind, sceneId } = parseItemId(itemId);
@@ -455,6 +472,9 @@ class ProviderService {
         const season = sceneToSeasonMetadata(identifier, stashId, scene, fs);
         return {
           MediaContainer: {
+            offset: 0,
+            totalSize: 1,
+            identifier,
             size: 1,
             key,
             parentRatingKey: buildRatingKey('show', sceneId),
@@ -467,6 +487,9 @@ class ProviderService {
       const episode = sceneToEpisodeMetadata(identifier, stashId, scene, fs);
       return {
         MediaContainer: {
+          offset: 0,
+          totalSize: 1,
+          identifier,
           size: 1,
           key,
           parentRatingKey: buildRatingKey('season', sceneId),
@@ -482,7 +505,7 @@ class ProviderService {
 
   async getImages(stashId: string, itemId: string): Promise<ImagesResponse> {
     const stash = await configService.getStash(stashId);
-    if (!stash) return { MediaContainer: { size: 0, Metadata: [] } };
+    if (!stash) return { MediaContainer: { offset: 0, totalSize: 0, size: 0, Image: [] } };
 
     const { sceneId } = parseItemId(itemId);
     const identifier = buildIdentifier(stashId);
@@ -490,10 +513,10 @@ class ProviderService {
 
     try {
       const scene = await stashService.findScene(stash, sceneId);
-      if (!scene) return { MediaContainer: { size: 0, Metadata: [] } };
+      if (!scene) return { MediaContainer: { offset: 0, totalSize: 0, size: 0, Image: [] } };
 
       const rk = `${stashId}.${scene.id}`;
-      const images: ImagesResponse['MediaContainer']['Metadata'] = [];
+      const images: ImagesResponse['MediaContainer']['Image'] = [];
 
       if (fs.poster && scene.paths?.screenshot) {
         images.push({
@@ -524,9 +547,11 @@ class ProviderService {
         }
       }
 
-      return { MediaContainer: { size: images.length, Metadata: images } };
+      return {
+        MediaContainer: { offset: 0, totalSize: images.length, identifier, size: images.length, Image: images },
+      };
     } catch {
-      return { MediaContainer: { size: 0, Metadata: [] } };
+      return { MediaContainer: { offset: 0, totalSize: 0, size: 0, Image: [] } };
     }
   }
 }
