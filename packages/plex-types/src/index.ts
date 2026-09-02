@@ -82,6 +82,17 @@ export interface MatchResult {
   year: number;
   score: number;
   type: string;
+
+  // Optional rich fields — populated only when the request sets
+  // includeFullMetadata=1 and the score clears Plex's positive-match
+  // threshold, so Plex can skip a follow-up GET /library/metadata/{id}.
+  summary?: string;
+  studio?: string;
+  Genre?: { tag: string }[];
+  Role?: { tag: string; role?: string; thumb?: string }[];
+  thumb?: string;
+  art?: string;
+  originallyAvailableAt?: string;
 }
 
 /** Match response */
@@ -297,6 +308,14 @@ export interface MatchRequest {
   year?: number;
   /** 1 = Movie, 2 = Show */
   type?: number;
+  /**
+   * When set (1) and the best match scores above Plex's positive-match
+   * threshold (85), Plex expects the full rich Metadata object to be
+   * embedded directly in the match response instead of following up with
+   * a separate GET /library/metadata/{id} call.
+   */
+  includeFullMetadata?: number;
+  manual?: number;
 }
 
 /** Common X-Plex-* headers */

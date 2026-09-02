@@ -118,7 +118,8 @@ function sceneToMatchResult(
   scene: StashScene,
   queryTitle: string,
   kind: ItemKind,
-  queryYear?: number,
+  queryYear: number | undefined,
+  manual: boolean,
 ): MatchResult {
   const sceneYear = yearFromDate(scene.date);
   let score = titleScore(queryTitle, scene.title);
@@ -126,15 +127,52 @@ function sceneToMatchResult(
 
   const ratingKey = buildRatingKey(kind, scene.id);
 
+  // Plex's manual Fix Match candidate list only surfaces `title` and `year`
+  // — not a full date — so same-year scenes are otherwise indistinguishable
+  // when picking manually. Only append the date hint for manual picks: for
+  // automatic/single-best matches this title may be stored verbatim as the
+  // final title (see includeFullMetadata below), so it must stay clean.
+  const displayTitle =
+    manual && scene.date ? `${scene.title} (${scene.date})` : scene.title;
+
   return {
     guid: buildGuid(identifier, kind, scene.id),
     ratingKey,
     key: `/library/metadata/${ratingKey}`,
-    title: scene.title,
+    title: displayTitle,
     year: sceneYear || new Date().getFullYear(),
     score,
     type: kind === 'show' ? 'show' : 'movie',
   };
+}
+
+/**
+ * Merge full rich metadata fields into an already-built match candidate.
+ * Used when Plex requests includeFullMetadata=1 and the candidate's score
+ * clears the positive-match threshold (85) — Plex expects the complete
+ * item embedded here instead of following up with a separate GET
+ * /library/metadata/{id} call, which is what caused summary/date/genre to
+ * silently never sync on automatic matches and refreshes.
+ */
+function enrichMatchResultWithFullMetadata(
+  result: MatchResult,
+  stashId: string,
+  scene: StashScene,
+  fs: FieldSync,
+): void {
+  result.summary = fs.summary ? (scene.details || '') : '';
+  result.originallyAvailableAt = fs.date ? (scene.date || undefined) : undefined;
+  result.thumb = fs.poster ? proxyImageUrl(stashId, scene.paths?.screenshot) : undefined;
+  result.art = fs.background ? proxyImageUrl(stashId, scene.paths?.preview) : undefined;
+
+  if (fs.studio && scene.studio) result.studio = scene.studio.name;
+  if (fs.tags && scene.tags?.length) result.Genre = scene.tags.map((t) => ({ tag: t.name }));
+  if (fs.performers && scene.performers?.length) {
+    result.Role = scene.performers.map((p) => ({
+      tag: p.name,
+      thumb: fs.poster ? proxyImageUrl(stashId, p.image_path) : undefined,
+    }));
+  }
 }
 
 /**
@@ -339,7 +377,9 @@ class ProviderService {
    */
   async matchMetadata(stashId: string, request: MatchRequest): Promise<MatchResponse> {
     const kind: ItemKind = request.type === 2 ? 'show' : 'movie';
-    const cacheKey = `${cacheService.matchKey(stashId, request.title, request.year)}:${kind}`;
+    const manual = request.manual === 1;
+    const wantsFullMetadata = request.includeFullMetadata === 1;
+    const cacheKey = `${cacheService.matchKey(stashId, request.title, request.year, manual, wantsFullMetadata)}:${kind}`;
     const cached = cacheService.getMatch(cacheKey) as MatchResponse | undefined;
     if (cached) return cached;
 
@@ -349,18 +389,40 @@ class ProviderService {
     try {
       const identifier = buildIdentifier(stashId);
       const scenes = await stashService.findScenes(stash, request.title, request.year);
-      const results = scenes
-        .map((s) => sceneToMatchResult(identifier, stashId, s, request.title, kind, request.year))
-        .sort((a, b) => b.score - a.score);
 
-      // Plex silently discards match results with score < 85.
+      // Keep the scene alongside its result so full-metadata enrichment
+      // (below) has something to read from after sorting/scoring.
+      const paired = scenes.map((scene) => ({
+        scene,
+        result: sceneToMatchResult(identifier, stashId, scene, request.title, kind, request.year, manual),
+      }));
+      paired.sort((a, b) => b.result.score - a.result.score);
+
+      // Per Plex's official docs, scores over 85 are considered a positive
+      // match; anything at or below that may be treated as ambiguous/ignored.
       // Stash often finds scenes via hash/filename where the returned title
       // (e.g. Japanese) bears no textual similarity to the search string,
       // producing a titleScore of 0. Override scores so the top result is
       // always 100 and subsequent results decrease by 1 (floor at 86).
-      results.forEach((r, i) => {
-        r.score = Math.max(100 - i, 86);
+      paired.forEach((p, i) => {
+        p.result.score = Math.max(100 - i, 86);
       });
+
+      // Plex may request includeFullMetadata=1 to have the complete item
+      // embedded directly in the match response for anything that clears
+      // the positive-match threshold (85), skipping a follow-up GET
+      // /library/metadata/{id} entirely. Without this, summary/date/genre
+      // silently never sync on automatic matches and metadata refreshes.
+      if (wantsFullMetadata) {
+        const fs = resolveFieldSync(stash.fieldSync);
+        for (const p of paired) {
+          if (p.result.score > 85) {
+            enrichMatchResultWithFullMetadata(p.result, stashId, p.scene, fs);
+          }
+        }
+      }
+
+      const results = paired.map((p) => p.result);
 
       loggerService.info(
         `Match "${request.title}" → ${results.length} results (${kind})`,
