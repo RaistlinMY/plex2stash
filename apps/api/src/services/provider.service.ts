@@ -124,13 +124,16 @@ function sceneToMatchResult(
   let score = titleScore(queryTitle, scene.title);
   if (queryYear && sceneYear === queryYear) score = Math.min(score + 15, 100);
 
+  const ratingKey = buildRatingKey(kind, scene.id);
+
   return {
     guid: buildGuid(identifier, kind, scene.id),
-    name: scene.title,
+    ratingKey,
+    key: `/library/metadata/${ratingKey}`,
+    title: scene.title,
     year: sceneYear || new Date().getFullYear(),
     score,
     type: kind === 'show' ? 'show' : 'movie',
-    key: `/library/metadata/${buildRatingKey(kind, scene.id)}`,
   };
 }
 
@@ -341,7 +344,7 @@ class ProviderService {
     if (cached) return cached;
 
     const stash = await configService.getStash(stashId);
-    if (!stash) return { MediaContainer: { size: 0, SearchResult: [] } };
+    if (!stash) return { MediaContainer: { size: 0, Metadata: [] } };
 
     try {
       const identifier = buildIdentifier(stashId);
@@ -350,13 +353,13 @@ class ProviderService {
         .map((s) => sceneToMatchResult(identifier, stashId, s, request.title, kind, request.year))
         .sort((a, b) => b.score - a.score);
 
-      // Plex silently discards match results with score < 80.
+      // Plex silently discards match results with score < 85.
       // Stash often finds scenes via hash/filename where the returned title
       // (e.g. Japanese) bears no textual similarity to the search string,
       // producing a titleScore of 0. Override scores so the top result is
-      // always 100 and subsequent results decrease by 1 (floor at 80).
+      // always 100 and subsequent results decrease by 1 (floor at 86).
       results.forEach((r, i) => {
-        r.score = Math.max(100 - i, 80);
+        r.score = Math.max(100 - i, 86);
       });
 
       loggerService.info(
@@ -365,13 +368,13 @@ class ProviderService {
       );
 
       const response: MatchResponse = {
-        MediaContainer: { size: results.length, SearchResult: results },
+        MediaContainer: { size: results.length, Metadata: results },
       };
       cacheService.setMatch(cacheKey, response);
       return response;
     } catch (err: any) {
       loggerService.error(`match error: ${err.message}`, stashId);
-      return { MediaContainer: { size: 0, SearchResult: [] } };
+      return { MediaContainer: { size: 0, Metadata: [] } };
     }
   }
 
@@ -381,7 +384,7 @@ class ProviderService {
    */
   async matchMetadataWithFallback(primaryStashId: string, request: MatchRequest): Promise<MatchResponse> {
     const primary = await this.matchMetadata(primaryStashId, request);
-    if (primary.MediaContainer.SearchResult.length > 0) return primary;
+    if (primary.MediaContainer.Metadata.length > 0) return primary;
 
     const allStashes = await configService.getStashes();
     const fallbacks = allStashes
@@ -391,7 +394,7 @@ class ProviderService {
     for (const stash of fallbacks) {
       try {
         const result = await this.matchMetadata(stash.id, request);
-        if (result.MediaContainer.SearchResult.length > 0) {
+        if (result.MediaContainer.Metadata.length > 0) {
           loggerService.info(
             `Fallback match "${request.title}" resolved via stash=${stash.id}`,
             primaryStashId,
@@ -401,7 +404,7 @@ class ProviderService {
       } catch { continue; }
     }
 
-    return { MediaContainer: { size: 0, SearchResult: [] } };
+    return { MediaContainer: { size: 0, Metadata: [] } };
   }
 
   /**

@@ -76,8 +76,9 @@ export interface ProviderRootResponse {
 /** A single match candidate returned by the match endpoint */
 export interface MatchResult {
   guid: string;
+  ratingKey: string;
   key: string;
-  name: string;
+  title: string;
   year: number;
   score: number;
   type: string;
@@ -87,7 +88,7 @@ export interface MatchResult {
 export interface MatchResponse {
   MediaContainer: {
     size: number;
-    SearchResult: MatchResult[];
+    Metadata: MatchResult[];
   };
 }
 
