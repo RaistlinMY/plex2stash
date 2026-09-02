@@ -112,11 +112,10 @@ function sceneToMatchResult(
 
 /**
  * Merge full rich metadata fields into an already-built match candidate.
- * Used when Plex requests includeFullMetadata=1 and the candidate's score
- * clears the positive-match threshold (85) — Plex expects the complete
- * item embedded here instead of following up with a separate GET
- * /library/metadata/{id} call, which is what caused summary/date/genre to
- * silently never sync on automatic matches and refreshes.
+ * Applied to any candidate whose score clears the positive-match threshold
+ * (85) — Plex does not reliably follow up a match with a separate GET
+ * /library/metadata/{id} call, so the match response is often the only
+ * chance to deliver summary/date/genre/images.
  */
 function enrichMatchResultWithFullMetadata(
   result: MatchResult,
@@ -323,8 +322,7 @@ class ProviderService {
   async matchMetadata(stashId: string, request: MatchRequest): Promise<MatchResponse> {
     const kind: ItemKind = request.type === 2 ? 'show' : 'movie';
     const manual = request.manual === 1;
-    const wantsFullMetadata = request.includeFullMetadata === 1;
-    const cacheKey = `${cacheService.matchKey(stashId, request.title, request.year, manual, wantsFullMetadata)}:${kind}`;
+    const cacheKey = `${cacheService.matchKey(stashId, request.title, request.year, manual)}:${kind}`;
     const cached = cacheService.getMatch(cacheKey) as MatchResponse | undefined;
     if (cached) return cached;
 
@@ -347,16 +345,16 @@ class ProviderService {
         p.result.score = Math.max(100 - i, 86);
       });
 
-      // Plex may request includeFullMetadata=1 to have the complete item
-      // embedded directly in the match response for anything that clears
-      // the positive-match threshold (85), skipping a follow-up GET
-      // /library/metadata/{id} entirely.
-      if (wantsFullMetadata) {
-        const fs = resolveFieldSync(stash.fieldSync);
-        for (const p of paired) {
-          if (p.result.score > 85) {
-            enrichMatchResultWithFullMetadata(p.result, stashId, p.scene, fs);
-          }
+      // `includeFullMetadata` isn't part of Plex's documented match protocol,
+      // and in practice Plex does not reliably follow up a match with a GET
+      // /library/metadata/{id} call — the match response itself is often the
+      // only chance to deliver summary/genre/images. So the full item is
+      // always embedded for anything that clears the positive-match
+      // threshold (85), regardless of what the request asked for.
+      const fs = resolveFieldSync(stash.fieldSync);
+      for (const p of paired) {
+        if (p.result.score > 85) {
+          enrichMatchResultWithFullMetadata(p.result, stashId, p.scene, fs);
         }
       }
 

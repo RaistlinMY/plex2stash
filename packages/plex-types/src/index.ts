@@ -81,9 +81,9 @@ export interface MatchResult {
   score: number;
   type: string;
 
-  // Optional rich fields — populated only when the request sets
-  // includeFullMetadata=1 and the score clears Plex's positive-match
-  // threshold, so Plex can skip a follow-up GET /library/metadata/{id}.
+  // Optional rich fields — populated whenever the candidate's score clears
+  // Plex's positive-match threshold, since Plex does not reliably follow up
+  // a match with a separate GET /library/metadata/{id} call.
   summary?: string;
   studio?: string;
   Genre?: { tag: string }[];
