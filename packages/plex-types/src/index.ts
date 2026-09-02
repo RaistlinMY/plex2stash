@@ -76,6 +76,7 @@ export interface ProviderRootResponse {
 /** A single match candidate returned by the match endpoint */
 export interface MatchResult {
   guid: string;
+  key: string;
   name: string;
   year: number;
   score: number;
