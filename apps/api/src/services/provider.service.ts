@@ -346,6 +346,10 @@ class ProviderService {
 
       // Per Plex's official docs, scores over 85 are considered a positive
       // match; anything at or below that may be treated as ambiguous/ignored.
+      // Stash often finds scenes via hash/filename where the returned title
+      // (e.g. Japanese) bears no textual similarity to the search string,
+      // producing a titleScore of 0. Override scores so the top result is
+      // always 100 and subsequent results decrease by 1 (floor at 86).
       paired.forEach((p, i) => {
         p.result.score = Math.max(100 - i, 86);
       });
