@@ -21,10 +21,6 @@ import { loggerService } from './logger.service.js';
 // ID helpers
 // ============================================================
 
-/**
- * Sanitize a stashId for Plex identifiers.
- * Only [a-zA-Z0-9.] allowed.
- */
 function sanitizeIdentifier(stashId: string): string {
   return stashId
     .replace(/[^a-zA-Z0-9.]/g, '.')
@@ -32,37 +28,18 @@ function sanitizeIdentifier(stashId: string): string {
     .replace(/^\.+|\.+$/g, '');
 }
 
-/**
- * Compute the full provider identifier for a stashId.
- * Used as the `identifier` field AND as the URI scheme in all GUIDs.
- */
 function buildIdentifier(stashId: string): string {
   return `${PROVIDER_ID_PREFIX}.${sanitizeIdentifier(stashId)}`;
 }
 
-/**
- * Build a Plex-compatible GUID.
- * Format: {identifier}://{kind}.{sceneId}
- * The scheme matches the provider identifier exactly — required by Plex.
- */
 function buildGuid(identifier: string, kind: ItemKind, sceneId: string): string {
   return `${identifier}://${kind}.${sceneId}`;
 }
 
-/**
- * Build a ratingKey for an item.
- * Scoped to the stash (stashId is already in the URL path).
- * Format: {kind}.{sceneId}
- */
 function buildRatingKey(kind: ItemKind, sceneId: string): string {
   return `${kind}.${sceneId}`;
 }
 
-/**
- * Parse an incoming id parameter into its kind and underlying sceneId.
- * Supports prefixed format: movie.123, show.123, season.123, episode.123.
- * Falls back to 'movie' for backward compatibility.
- */
 function parseItemId(id: string): { kind: ItemKind; sceneId: string } {
   if (id.startsWith('movie.'))   return { kind: 'movie',   sceneId: id.slice(6) };
   if (id.startsWith('show.'))    return { kind: 'show',    sceneId: id.slice(5) };
@@ -75,14 +52,12 @@ function parseItemId(id: string): { kind: ItemKind; sceneId: string } {
 // Utility helpers
 // ============================================================
 
-/** Extract year from ISO date string "2024-01-15" → 2024 */
 function yearFromDate(date?: string): number {
   if (!date) return 0;
   const y = parseInt(date.slice(0, 4), 10);
   return isNaN(y) ? 0 : y;
 }
 
-/** Token-overlap title-similarity score (0–100) */
 function titleScore(query: string, target: string): number {
   const q = query.toLowerCase().trim();
   const t = target.toLowerCase().trim();
@@ -96,13 +71,11 @@ function titleScore(query: string, target: string): number {
   return Math.round((overlap / maxLen) * 70);
 }
 
-/** Build an image proxy URL so Plex fetches images without Stash auth. */
 function proxyImageUrl(stashId: string, rawUrl?: string): string | undefined {
   if (!rawUrl) return undefined;
   return `/providers/${stashId}/imageProxy?url=${encodeURIComponent(rawUrl)}`;
 }
 
-/** Resolve fieldSync, falling back to all-enabled defaults. */
 function resolveFieldSync(fs?: Partial<FieldSync> | null): FieldSync {
   return { ...DEFAULT_FIELD_SYNC, ...(fs ?? {}) };
 }
@@ -119,7 +92,6 @@ function sceneToMatchResult(
   queryTitle: string,
   kind: ItemKind,
   queryYear: number | undefined,
-  manual: boolean,
 ): MatchResult {
   const sceneYear = yearFromDate(scene.date);
   let score = titleScore(queryTitle, scene.title);
@@ -127,19 +99,11 @@ function sceneToMatchResult(
 
   const ratingKey = buildRatingKey(kind, scene.id);
 
-  // Plex's manual Fix Match candidate list only surfaces `title` and `year`
-  // — not a full date — so same-year scenes are otherwise indistinguishable
-  // when picking manually. Only append the date hint for manual picks: for
-  // automatic/single-best matches this title may be stored verbatim as the
-  // final title (see includeFullMetadata below), so it must stay clean.
-  const displayTitle =
-    manual && scene.date ? `${scene.title} (${scene.date})` : scene.title;
-
   return {
     guid: buildGuid(identifier, kind, scene.id),
     ratingKey,
     key: `/library/metadata/${ratingKey}`,
-    title: displayTitle,
+    title: scene.title,
     year: sceneYear || new Date().getFullYear(),
     score,
     type: kind === 'show' ? 'show' : 'movie',
@@ -175,10 +139,6 @@ function enrichMatchResultWithFullMetadata(
   }
 }
 
-/**
- * Map a Stash scene to a Plex Movie (type 1) MetadataItem.
- * fieldSync controls which optional fields are included.
- */
 function sceneToMovieMetadata(
   identifier: string,
   stashId: string,
@@ -215,10 +175,6 @@ function sceneToMovieMetadata(
   return item;
 }
 
-/**
- * Map a Stash scene to a Plex Show (type 2) MetadataItem.
- * Each scene is wrapped as a "show" with 1 virtual season / 1 episode.
- */
 function sceneToShowMetadata(
   identifier: string,
   stashId: string,
@@ -251,10 +207,6 @@ function sceneToShowMetadata(
   return item;
 }
 
-/**
- * Build a virtual Plex Season (type 3) for a scene.
- * One season per show; all episodes belong to Season 1.
- */
 function sceneToSeasonMetadata(
   identifier: string,
   stashId: string,
@@ -283,10 +235,6 @@ function sceneToSeasonMetadata(
   };
 }
 
-/**
- * Map a Stash scene to a Plex Episode (type 4) MetadataItem.
- * Positioned as Season 1, Episode 1 under its parent show.
- */
 function sceneToEpisodeMetadata(
   identifier: string,
   stashId: string,
@@ -335,16 +283,6 @@ function sceneToEpisodeMetadata(
 // ============================================================
 
 class ProviderService {
-  /**
-   * Provider root — Plex discovery endpoint.
-   *
-   * CRITICAL FORMAT RULES:
-   *  • MediaProvider is a single OBJECT, not array
-   *  • No MediaContainer wrapper
-   *  • `Type` uses { id, Scheme } objects — `id` NOT `type` (causes parse error)
-   *  • `Scheme[].scheme` MUST equal `identifier` exactly
-   *  • `protocols: 'metadata'` required
-   */
   async getProviderRoot(stashId: string): Promise<ProviderRootResponse> {
     const stash = await configService.getStash(stashId);
     const name = stash?.name || `Stash ${stashId}`;
@@ -371,10 +309,6 @@ class ProviderService {
     };
   }
 
-  /**
-   * Match — search a single stash, return candidates.
-   * Respects request.type: 1 → movie, 2 → show, undefined → movie.
-   */
   async matchMetadata(stashId: string, request: MatchRequest): Promise<MatchResponse> {
     const kind: ItemKind = request.type === 2 ? 'show' : 'movie';
     const manual = request.manual === 1;
@@ -390,20 +324,14 @@ class ProviderService {
       const identifier = buildIdentifier(stashId);
       const scenes = await stashService.findScenes(stash, request.title, request.year);
 
-      // Keep the scene alongside its result so full-metadata enrichment
-      // (below) has something to read from after sorting/scoring.
       const paired = scenes.map((scene) => ({
         scene,
-        result: sceneToMatchResult(identifier, stashId, scene, request.title, kind, request.year, manual),
+        result: sceneToMatchResult(identifier, stashId, scene, request.title, kind, request.year),
       }));
       paired.sort((a, b) => b.result.score - a.result.score);
 
       // Per Plex's official docs, scores over 85 are considered a positive
       // match; anything at or below that may be treated as ambiguous/ignored.
-      // Stash often finds scenes via hash/filename where the returned title
-      // (e.g. Japanese) bears no textual similarity to the search string,
-      // producing a titleScore of 0. Override scores so the top result is
-      // always 100 and subsequent results decrease by 1 (floor at 86).
       paired.forEach((p, i) => {
         p.result.score = Math.max(100 - i, 86);
       });
@@ -411,8 +339,7 @@ class ProviderService {
       // Plex may request includeFullMetadata=1 to have the complete item
       // embedded directly in the match response for anything that clears
       // the positive-match threshold (85), skipping a follow-up GET
-      // /library/metadata/{id} entirely. Without this, summary/date/genre
-      // silently never sync on automatic matches and metadata refreshes.
+      // /library/metadata/{id} entirely.
       if (wantsFullMetadata) {
         const fs = resolveFieldSync(stash.fieldSync);
         for (const p of paired) {
@@ -440,10 +367,6 @@ class ProviderService {
     }
   }
 
-  /**
-   * Match with multi-provider fallback (priority order).
-   * Falls back to other enabled stashes if the primary returns nothing.
-   */
   async matchMetadataWithFallback(primaryStashId: string, request: MatchRequest): Promise<MatchResponse> {
     const primary = await this.matchMetadata(primaryStashId, request);
     if (primary.MediaContainer.Metadata.length > 0) return primary;
@@ -469,11 +392,6 @@ class ProviderService {
     return { MediaContainer: { size: 0, Metadata: [] } };
   }
 
-  /**
-   * Metadata — fetch a single item by its ratingKey.
-   * Parses the prefixed id (movie.*, show.*, season.*, episode.*).
-   * Applies fieldSync to filter optional metadata fields.
-   */
   async getMetadata(stashId: string, itemId: string): Promise<MetadataResponse> {
     const cacheKey = cacheService.metadataKey(stashId, itemId);
     const cached = cacheService.getMetadata(cacheKey) as MetadataResponse | undefined;
@@ -512,12 +430,6 @@ class ProviderService {
     }
   }
 
-  /**
-   * Children — traverse the Show → Season → Episode hierarchy.
-   *   • show.*   → returns the virtual Season 1
-   *   • season.* → returns Episode 1 (the actual Stash scene)
-   *   • movie.* / episode.* → empty (leaves have no children)
-   */
   async getChildren(stashId: string, itemId: string): Promise<ChildrenResponse> {
     const emptyContainer = (key: string): ChildrenResponse => ({
       MediaContainer: { size: 0, key, Metadata: [] },
@@ -568,10 +480,6 @@ class ProviderService {
     }
   }
 
-  /**
-   * Images — proxied image URLs for any item type.
-   * Respects fieldSync.poster and fieldSync.background.
-   */
   async getImages(stashId: string, itemId: string): Promise<ImagesResponse> {
     const stash = await configService.getStash(stashId);
     if (!stash) return { MediaContainer: { size: 0, Metadata: [] } };
