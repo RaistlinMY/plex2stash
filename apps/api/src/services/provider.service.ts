@@ -130,6 +130,7 @@ function sceneToMatchResult(
     year: sceneYear || new Date().getFullYear(),
     score,
     type: kind === 'show' ? 'show' : 'movie',
+    key: `/library/metadata/${buildRatingKey(kind, scene.id)}`,
   };
 }
 
